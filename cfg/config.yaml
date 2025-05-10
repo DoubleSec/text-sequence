@@ -2,11 +2,10 @@
 random_seed: 12345
 
 # Where is prepared data
-prepared_data_path: ./data/raw_data.parquet
+prepared_data_path: ./data
 
 preparation_params:
-  start_date: "2023-01-01"
-  end_date: "2024-12-31"
+  note: This is where information about initial data processing are.
 
 dataset_params:
   note: For dataset configuration

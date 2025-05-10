@@ -1,27 +1,20 @@
 """Contains tools for initial data preprocessing and then data loading during training."""
 
-from pybaseball import statcast
-import polars as pl
 import torch
 from torch.utils.data import Dataset
-from logzero import logger
 
 
-def initial_prep(
-    path: str,
-    start_date: str,
-    end_date: str,
-) -> str:
+def initial_prep(path: str, *args, **kwargs) -> str:
     """Do one-time data preparation.
 
-    Here we'll just download statcast data and save it.
-    """
+    This is intended for things that only need to happen once or infrequently:
+    - downloading data
+    - slow preprocessing
+    - splitting
+    - etc.
 
-    init_data = statcast(start_dt=start_date, end_dt=end_date)
-    init_data = pl.DataFrame(init_data)
-    logger.info(f"Writing {len(init_data)} rows to {path}")
-    init_data.write_parquet(path)
-    return path
+    The return value is intended to be where the prepared file was written."""
+    raise NotImplementedError
 
 
 class TrainingDataset(Dataset):
