@@ -2,31 +2,43 @@
 random_seed: 12345
 
 # Where is prepared data
-prepared_data_path: ./data
+prepared_data_path: ./data/raw_data.parquet
 
 preparation_params:
-  note: This is where information about initial data processing are.
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
 
 dataset_params:
-  note: For dataset configuration
+  embedding_path: ./data/embeddings.parquet
+  sequence_length: 16
+  morpher_spec:
+    description: [categorical, {}]
+    pitch_name: [categorical, {}]
+    release_speed: [numeric, {}]
+    plate_x: [numeric, {}]
+    plate_z: [numeric, {}]
+    pfx_x: [numeric, {}]
+    pfx_z: [numeric, {}]
 
 dataloader_params:
-  # Generic examples.
-  batch_size: 512
-  num_workers: 0
+  batch_size: 1024
+  num_workers: 10
 
 trainer_params:
-  # Examples
   precision: bf16-mixed
-  max_epochs: 16
+  max_epochs: 32
   accumulate_grad_batches: 1
   log_every_n_steps: 20
 
 model_params:
-  note: For model
+  d_model: 1024
+  d_embedding: 384
+  tr_params:
+    n_layers: 4
+    n_heads: 4
 
 optimizer_params:
   # These are just the Adam defaults.
-  lr: 0.001
+  lr: 0.0001
   betas: [0.9, 0.999]
-  weight_decay: 0
+  weight_decay: 0.01

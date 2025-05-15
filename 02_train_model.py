@@ -30,10 +30,12 @@ if __name__ == "__main__":
         train_ds,
         shuffle=True,
         **config["dataloader_params"],
+        drop_last=True,
     )
     valid_dl = torch.utils.data.DataLoader(
         valid_ds,
         **config["dataloader_params"],
+        drop_last=True,
     )
     # For the moment we're not doing anything with the test dataset.
 
@@ -54,7 +56,10 @@ if __name__ == "__main__":
 
         net = WhateverModel(
             **config["model_params"],
+            morpher_dict=train_ds.dataset.morphers,
+            sequence_length=train_ds.dataset.sequence_length,
             optimizer_params=config["optimizer_params"],
+            batch_size=config["dataloader_params"]["batch_size"],
         )
         # Maybe
         net.compile()

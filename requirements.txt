@@ -8,3 +8,4 @@ black
 tensorboard
 # Maybe
 logzero
+transformers
