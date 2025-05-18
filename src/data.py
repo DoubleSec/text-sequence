@@ -2,15 +2,16 @@
 
 from typing import Any
 from itertools import batched, chain
+import warnings
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 from pybaseball import statcast
-from logzero import logger
 import polars as pl
 import morphers
 from transformers import AutoTokenizer, AutoModel
+from tqdm import tqdm
 
 MORPHER_MAPPING = {
     "categorical": morphers.Integerizer,
@@ -43,32 +44,55 @@ def pad_tensor_dict(tensor_dict, max_length, return_mask: bool = True):
 
 
 def initial_prep(
-    path: str,
+    data_path: str,
+    embedding_path: str,
+    cached_data: bool,
     start_date: str,
     end_date: str,
+    model: str,
 ) -> str:
     """Do one-time data preparation.
     Here we'll just download statcast data and save it.
-    # We'll also embed the outcomes with modernbert
+    # We'll also embed the outcomes with something
     """
 
-    init_data = statcast(start_dt=start_date, end_dt=end_date)
-    init_data = (
-        pl.DataFrame(init_data)
-        .with_columns(
-            outcome_text=pl.concat_str(
-                pl.col("des"), pl.lit(" ("), pl.col("player_name"), pl.lit(")")
-            )
-            .alias("outcome_text")
-            .tolist()
-        )
-        .unique()
-    )
+    # Choose the model ==================
 
-    tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-small-en-v1.5")
-    model = AutoModel.from_pretrained("BAAI/bge-small-en-v1.5").to("cuda:0")
+    if model == "e5":
+        model_name = "intfloat/e5-small-v2"
+        prefix = "query: "
+    elif model == "bge":
+        model_name = "BAAI/bge-small-en-v1.5"
+        prefix = ""
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name).to("cuda:0")
     model.eval()
 
+    # Read from statcast or from cache. =====================
+
+    if cached_data is True:
+        raw_data = pl.read_parquet(data_path)
+    else:
+        with warnings.catch_warnings("ignore"):
+            raw_data = pl.DataFrame(statcast(start_dt=start_date, end_dt=end_date))
+            raw_data.write_parquet(data_path)
+
+    # Construct the text to embed. ==========================
+
+    embedding_data = raw_data.select(
+        "game_pk",
+        "at_bat_number",
+        pl.concat_str(
+            pl.lit(prefix),
+            pl.col("des"),
+            pl.lit(" ("),
+            pl.col("player_name"),
+            pl.lit(")"),
+        ).alias("outcome_text"),
+    ).unique()
+
+    # Helper function to make embeddings
     def make_embedding(text: str):
         encoded_input = tokenizer(
             text, padding=True, truncation=True, return_tensors="pt"
@@ -85,24 +109,17 @@ def initial_prep(
                 .squeeze()
             )
 
-    data = init_data.select(
-        "game_pk",
-        "at_bat_number",
-        pl.concat_str(
-            pl.col("des"), pl.lit(" ("), pl.col("player_name"), pl.lit(")")
-        ).alias("outcome_text"),
-    ).unique()
+    # Make and write embeddings =======================
 
     embeddings = list(
         chain.from_iterable(
-            make_embedding(batch) for batch in batched(data["outcome_text"], n=2048)
+            make_embedding(batch)
+            for batch in tqdm(batched(embedding_data["outcome_text"], n=2048))
         )
     )
     embeddings = np.stack(embeddings, axis=0)
-    data = data.with_columns(embeddings=embeddings)
-    data.write_parquet("data/embeddings.parquet")
-
-    return path
+    embedding_data = embedding_data.with_columns(embeddings=embeddings)
+    embedding_data.write_parquet(embedding_path)
 
 
 class TrainingDataset(Dataset):

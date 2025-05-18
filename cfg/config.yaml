@@ -1,15 +1,15 @@
 # Random seed for reproducibility
 random_seed: 12345
 
-# Where is prepared data
-prepared_data_path: ./data/raw_data.parquet
-
 preparation_params:
-  start_date: "2024-01-01"
+  model: e5
+  cached_data: false
+  data_path: ./data/raw_data.parquet
+  embedding_path: ./data/e5_embeddings.parquet
+  start_date: "2021-01-01"
   end_date: "2024-12-31"
 
 dataset_params:
-  embedding_path: ./data/embeddings.parquet
   sequence_length: 16
   morpher_spec:
     description: [categorical, {}]
@@ -21,24 +21,29 @@ dataset_params:
     pfx_z: [numeric, {}]
 
 dataloader_params:
-  batch_size: 1024
+  batch_size: 3072
   num_workers: 10
 
 trainer_params:
   precision: bf16-mixed
-  max_epochs: 32
+  max_epochs: 16
   accumulate_grad_batches: 1
-  log_every_n_steps: 20
+  log_every_n_steps: 5
+  gradient_clip_val: 1.0
 
 model_params:
-  d_model: 1024
+  d_model: 384
   d_embedding: 384
   tr_params:
     n_layers: 4
     n_heads: 4
+  starting_temperature: 3.5
+  sequence_dropout: 0.2
+  text_dropout: 0.0
 
 optimizer_params:
-  # These are just the Adam defaults.
-  lr: 0.0001
-  betas: [0.9, 0.999]
-  weight_decay: 0.01
+  adam_params:
+    betas: [0.9, 0.995]
+    weight_decay: 0.01
+  scheduler_params:
+    max_lr: 0.001

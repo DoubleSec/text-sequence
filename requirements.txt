@@ -9,3 +9,4 @@ tensorboard
 # Maybe
 logzero
 transformers
+tqmd

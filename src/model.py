@@ -51,6 +51,9 @@ class WhateverModel(pl.LightningModule):
         d_embedding: int,
         tr_params: dict[str, Any],
         batch_size: int,
+        starting_temperature: float,
+        sequence_dropout: float,
+        text_dropout: float,
     ):
         """Initialize the model.
 
@@ -62,6 +65,7 @@ class WhateverModel(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.optimizer_params = optimizer_params
+        self.n_classes = batch_size
 
         self.embedders = nn.ModuleDict(
             {
@@ -87,29 +91,33 @@ class WhateverModel(pl.LightningModule):
             num_layers=tr_params["n_layers"],
         )
 
-        self.sequence_projector = nn.Linear(d_model, d_model)
-        self.text_projector = nn.Linear(d_embedding, d_model)
-
-        # self.initialize_weights()
+        self.sequence_projector = nn.Sequential(
+            nn.Dropout(p=sequence_dropout),
+            nn.Linear(d_model, d_model),
+            nn.LayerNorm(d_model),
+        )
+        self.text_projector = nn.Sequential(
+            nn.Dropout(p=text_dropout),
+            nn.Linear(d_embedding, d_model),
+            nn.LayerNorm(d_model),
+        )
 
         self.metrics = MetricCollection(
             {
-                "precision_20": MulticlassPrecision(num_classes=batch_size, top_k=20),
-                "precision_10": MulticlassPrecision(num_classes=batch_size, top_k=10),
-                "precision_5": MulticlassPrecision(num_classes=batch_size, top_k=5),
-                "precision_1": MulticlassPrecision(num_classes=batch_size, top_k=1),
+                "precision_20": MulticlassPrecision(
+                    num_classes=self.n_classes, top_k=20
+                ),
+                "precision_10": MulticlassPrecision(
+                    num_classes=self.n_classes, top_k=10
+                ),
+                "precision_5": MulticlassPrecision(num_classes=self.n_classes, top_k=5),
+                "precision_1": MulticlassPrecision(num_classes=self.n_classes, top_k=1),
             }
         )
 
-    def initialize_weights(self):
-
-        # lol this doesn't work
-        # #yolo
-        for name, param in self.named_parameters():
-            if "weight" in name and param.data.dim() == 2:
-                nn.init.kaiming_uniform_(param)
-            elif "bias" in name:
-                nn.init.zeros_(param)
+        self.register_parameter(
+            "temperature", nn.Parameter(torch.log(torch.tensor(starting_temperature)))
+        )
 
     def configure_optimizers(self):
         """Lightning hook for optimizer setup.
@@ -118,8 +126,24 @@ class WhateverModel(pl.LightningModule):
         We can't pass arguments to this directly, so they need to go to the init.
         """
 
-        optimizer = torch.optim.AdamW(self.parameters(), **self.optimizer_params)
-        return optimizer
+        optimizer = torch.optim.AdamW(
+            self.parameters(), **self.optimizer_params["adam_params"]
+        )
+        total_steps = (
+            self.optimizer_params["n_obs"] // self.hparams["batch_size"]
+        ) * self.optimizer_params["n_epochs"]
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            total_steps=total_steps,
+            **self.optimizer_params["scheduler_params"],
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+            },
+        }
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         """Forward pass for the model.
@@ -171,8 +195,10 @@ class WhateverModel(pl.LightningModule):
 
         x_sequence = self.forward(x)
 
-        # (n, n)
-        logits = x_sequence @ x_text.T
+        temp = torch.clamp(
+            torch.exp(self.temperature), max=torch.tensor(100.0).to(self.temperature)
+        )
+        logits = (x_sequence @ x_text.mT) / temp
         targets = torch.arange(batch_size, device=logits.device)
 
         # Scalar output
@@ -181,6 +207,11 @@ class WhateverModel(pl.LightningModule):
         self.log(f"{stage}_loss", loss)
         metric_results = self.metrics(logits, targets)
         self.log_dict({f"{stage}_{k}": v for k, v in metric_results.items()})
+        correct_logit_mean = torch.mean(
+            logits * torch.eye(self.hparams["batch_size"]).to(logits)
+        )
+        self.log(f"{stage}_logit_mean", correct_logit_mean)
+        self.log(f"{stage}_temperature", temp)
         return loss
 
     def training_step(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
