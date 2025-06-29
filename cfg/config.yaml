@@ -32,7 +32,7 @@ trainer_params:
   gradient_clip_val: 1.0
 
 model_params:
-  d_model: 384
+  d_model: 768
   d_embedding: 384
   tr_params:
     n_layers: 4

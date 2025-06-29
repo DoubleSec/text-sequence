@@ -196,7 +196,7 @@ class WhateverModel(pl.LightningModule):
         x_sequence = self.forward(x)
 
         temp = torch.clamp(
-            torch.exp(self.temperature), max=torch.tensor(100.0).to(self.temperature)
+            torch.exp(self.temperature), min=torch.tensor(0.01).to(self.temperature)
         )
         logits = (x_sequence @ x_text.mT) / temp
         targets = torch.arange(batch_size, device=logits.device)
